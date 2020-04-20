@@ -16,6 +16,15 @@ defmodule OpenIDConnect do
   @type jwt :: String.t()
 
   @typedoc """
+  OAuth2 refresh token
+
+  See: 
+    * https://www.oauth.com/oauth2-servers/access-tokens/refreshing-access-tokens/
+    * https://www.oauth.com/oauth2-servers/making-authenticated-requests/refreshing-an-access-token/
+  """
+  @type refresh_token :: String.t()
+
+  @typedoc """
   The provider name as an atom
 
   Example: `:google`
@@ -149,6 +158,40 @@ defmodule OpenIDConnect do
     else
       {:ok, resp} -> {:error, :fetch_tokens, resp}
       {:error, reason} -> {:error, :fetch_tokens, reason}
+    end
+  end
+
+  @spec refresh_tokens(provider, refresh_token, name) :: success(map) | error(:refresh_tokens)
+  @doc """
+  Fetches the authentication tokens from the provider
+
+  The `params` option should at least include the key/value pairs of the `response_type` that
+  was requested during authorization. `params` may also include any one-off overrides for token
+  fetching.
+  """
+  def refresh_tokens(provider, refresh_token, name \\ :openid_connect) do
+    uri = access_token_uri(provider, name)
+    config = config(provider, name)
+
+    form_body =
+      %{
+        client_id: client_id(config),
+        client_secret: client_secret(config),
+        grant_type: "refresh_token",
+        refresh_token: refresh_token
+      }
+      |> Map.to_list()
+
+    headers = [{"Content-Type", "application/x-www-form-urlencoded"}]
+
+    with {:ok, %HTTPoison.Response{status_code: status_code} = resp} when status_code in 200..299 <-
+           http_client().post(uri, {:form, form_body}, headers, http_client_options()),
+         {:ok, json} <- Jason.decode(resp.body),
+         {:ok, json} <- assert_json(json) do
+      {:ok, json}
+    else
+      {:ok, resp} -> {:error, :refresh_tokens, resp}
+      {:error, reason} -> {:error, :refresh_tokens, reason}
     end
   end
 
